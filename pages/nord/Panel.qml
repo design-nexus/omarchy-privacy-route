@@ -1,0 +1,541 @@
+import QtQuick
+import QtQuick.Controls
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+import "../.."
+import "Model.js" as Model
+
+Panel {
+  id: root
+  property alias service: nord
+  moduleName: "io.github.guiestrela.nordvpn"
+  ipcTarget: "io.github.guiestrela.nordvpn"
+  manageIpc: false
+  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color dim: Qt.darker(foreground, 1.55)
+  readonly property string fontFamily: (bar && bar.fontFamily) ? bar.fontFamily : Style.font.family
+  readonly property color iconColor: nord.unavailable ? urgent : (nord.active ? foreground : dim)
+  readonly property color barIconColor: nord.unavailable ? Qt.darker(barForeground, 1.2) : (nord.active ? barForeground : Qt.darker(barForeground, 1.55))
+  readonly property string toggleHint: nord.active ? "Disconnect" : "Connect"
+  readonly property bool paused: nord.pauseRemainingSec > 0
+  readonly property string tooltipCountry: nord.country !== "" ? " (" + nord.country + ")" : ""
+  property bool updatingCountryPicker: false
+  property bool updatingCityPicker: false
+  // design-nexus.privacy-route: the settings block stays folded until asked for.
+  property bool settingsShown: false
+  property string selectedProtocol: String(setting("protocol", ""))
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
+  Service { id: nord; settings: root.settings }
+
+  // Plugin settings live in shell.json. Persist through the shell owner so
+  // the selected country survives a shell restart or system reboot.
+  function persistSetting(key, value) {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") return
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    entry[key] = value
+    root.settings = entry
+    root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
+  onOpenedChanged: if (opened) {
+    nord.refresh()
+    nord.refreshSettings()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  Connections {
+    target: nord
+    function updateBarTooltip() {
+      if (root.bar && button.tooltipHovered)
+        root.bar.showTooltip(button, button.tooltipText)
+    }
+    function onConnectionStateChanged() {
+      if (nord.connected) {
+        pausePicker.value = ""
+        nord.clearPauseCountdown()
+      }
+      updateBarTooltip()
+    }
+    function onAutoConnectCountryChanged() {
+      autoConnectCountryPicker.value = nord.autoConnectCountry
+    }
+    function onVpnSettingsChanged() {
+      var technology = Model.selectedOptionValue(nord.vpnSettings["technology"], technologyPicker.options)
+      var protocol = Model.selectedOptionValue(nord.vpnSettings["protocol"], protocolPicker.options)
+      if (technology !== "") technologyPicker.value = technology
+      if (protocol !== "") {
+        root.selectedProtocol = protocol
+        protocolPicker.value = protocol
+      } else if (root.selectedProtocol !== "") {
+        protocolPicker.value = root.selectedProtocol
+      }
+    }
+    function onCityChanged() {
+      root.updatingCityPicker = true
+      cityPicker.value = nord.connected ? Model.cliName(nord.city) : ""
+      root.updatingCityPicker = false
+    }
+    function onCountryChanged() {
+      if (countryPicker.value !== nord.country) {
+        // `country` is the live VPN status, not the user's auto-connect
+        // preference. Updating the first picker must never be interpreted as
+        // a new user selection and sent back to nordvpn connect.
+        root.updatingCountryPicker = true
+        countryPicker.value = nord.country
+        root.updatingCountryPicker = false
+      }
+      updateBarTooltip()
+    }
+  }
+
+  IpcHandler {
+    target: root.ipcTarget
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { nord.toggle() }
+    function refresh(): string { nord.refresh(); return "ok" }
+    function status(): string { return nord.statusText }
+  }
+
+  BarIconButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: "󰦝"
+    foreground: root.barIconColor
+    tooltipText: root.paused
+      ? "NordVPN " + String.fromCodePoint(0x2014) + " Paused (" + nord.pauseCountdownText + ")" + root.tooltipCountry
+      : "NordVPN " + String.fromCodePoint(0x2014) + " " + nord.statusText + root.tooltipCountry
+    onPressed: function(buttonCode) {
+      if (buttonCode === Qt.RightButton) nord.refresh()
+      else if (buttonCode === Qt.MiddleButton) nord.toggle()
+      else root.toggle()
+    }
+  }
+
+  Timer {
+    id: pauseTooltipTimer
+    interval: 1000
+    repeat: true
+    running: root.paused && button.tooltipHovered
+    onTriggered: {
+      if (root.bar && button.tooltipHovered)
+        root.bar.tooltipText = button.tooltipText
+    }
+  }
+
+  EmbeddedPanel {
+    id: panel
+    anchorItem: button
+    owner: root
+    bar: root.bar
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(440))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(1200))
+
+    PanelKeyCatcher {
+      id: keyCatcher
+      anchors.fill: parent
+      blocked: countryPicker.popupOpen || cityPicker.popupOpen || pausePicker.popupOpen || technologyPicker.popupOpen
+      onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTextKey: function(t) {
+        if (t === "r" || t === "R") nord.refresh()
+        else if (t === "c" || t === "C") nord.toggle()
+        else if (t === "s" || t === "S") root.settingsShown = !root.settingsShown
+      }
+
+      Flickable {
+        id: panelScroll
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+
+        Column {
+        id: column
+        width: panelScroll.width
+        spacing: HubStyle.gap + 4
+
+        HubHero {
+          id: hero
+          width: parent.width
+          title: "NordVPN"
+          meta: nord.connected
+            ? [nord.city, nord.country].filter(function(v) { return v !== "" }).join(", ") + (nord.server ? " \u00B7 " + nord.server : "")
+            : nord.statusText
+          detail: nord.connected ? "Connected" : (nord.transitioning ? nord.statusText : "")
+          detailActive: nord.connected
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          iconOpacity: nord.unavailable ? 0.5 : (nord.active ? 1.0 : 0.6)
+          iconComponent: Component {
+            Text { text: "󰦝"; color: root.iconColor; font.family: root.fontFamily; font.pixelSize: HubStyle.iconSize }
+          }
+          trailingControl: Component {
+            ToggleSwitch {
+              id: powerSwitch
+              checked: nord.active
+              busy: nord.busy || nord.unavailable
+              interactive: !nord.unavailable
+              foreground: hero.foreground
+              onToggled: nord.toggle()
+              PanelToolTip {
+                visible: powerSwitch.containsMouse
+                text: root.toggleHint
+                fontFamily: hero.fontFamily
+              }
+            }
+          }
+        }
+
+        Text {
+          visible: nord.actionStatus !== "" || nord.lastError !== ""
+          width: parent.width
+          text: nord.actionStatus !== "" ? nord.actionStatus : nord.lastError
+          color: root.urgent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+
+        PanelSeparator { foreground: root.foreground }
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          PanelSectionHeader { text: "Location"; foreground: root.foreground; fontFamily: root.fontFamily; fontSize: HubStyle.fsBody }
+          SearchableDropdown {
+            id: countryPicker
+            width: parent.width
+            showLabel: false
+            placeholderText: "Search countries..."
+            fontFamily: root.fontFamily
+            options: nord.countries
+            value: nord.country
+            onChanged: function(v) {
+              if (root.updatingCountryPicker) return
+              nord.loadCities(v)
+              nord.setCountry(v)
+            }
+          }
+          SearchableDropdown {
+            id: cityPicker
+            visible: nord.cities.length > 0
+            width: parent.width
+            showLabel: false
+            placeholderText: "Any city \u2014 search cities..."
+            fontFamily: root.fontFamily
+            options: nord.cities
+            value: nord.connected ? Model.cliName(nord.city) : ""
+            onChanged: function(v) {
+              if (!root.updatingCityPicker && v) nord.setCity(nord.citiesFor, v)
+            }
+          }
+        }
+
+        PanelSeparator { foreground: root.foreground }
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          PanelSectionHeader { text: "Pause"; foreground: root.foreground; fontFamily: root.fontFamily; fontSize: HubStyle.fsBody }
+          Row {
+            width: parent.width
+            spacing: Style.space(10)
+            SearchableDropdown {
+              id: pausePicker
+              width: Style.space(220)
+            showLabel: false
+            placeholderText: "Choose pause duration..."
+            fontFamily: root.fontFamily
+            options: [
+              { value: "5m", label: "5 minutes" },
+              { value: "15m", label: "15 minutes" },
+              { value: "30m", label: "30 minutes" },
+              { value: "1h", label: "1 hour" },
+              { value: "24h", label: "24 hours" }
+            ]
+              onChanged: function(v) {
+                nord.pause(v)
+                pausePicker.value = ""
+              }
+            }
+            Text {
+              width: parent.width - pausePicker.width - Style.space(10)
+              height: pausePicker.implicitHeight
+              text: nord.pauseCountdownText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+            }
+          }
+        }
+
+        PanelSeparator { foreground: root.foreground }
+        Column {
+          width: parent.width
+          spacing: Style.space(8)
+          Item {
+            width: parent.width
+            height: settingsToggle.implicitHeight + Style.space(4)
+
+            Row {
+              id: settingsToggle
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(6)
+
+              PanelSectionHeader {
+                text: "Settings"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: HubStyle.fsBody
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.settingsShown ? "\u25BE" : "\u25B8"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: HubStyle.fsBody
+              }
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              visible: !root.settingsShown
+              textFormat: Text.PlainText
+              text: "Technology, protocol, auto-connect, security (s)"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: HubStyle.fsSmall
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.settingsShown = !root.settingsShown
+            }
+          }
+
+          Column {
+            id: settingsBody
+            visible: root.settingsShown
+            width: parent.width
+            spacing: Style.space(8)
+          SearchableDropdown {
+            id: technologyPicker
+            width: parent.width
+            showLabel: true
+            label: "Technology"
+            placeholderText: "Select technology..."
+            fontFamily: root.fontFamily
+            options: [
+              { value: "NORDLYNX", label: "NordLynx" },
+              { value: "OPENVPN", label: "OpenVPN" }
+            ]
+            value: Model.selectedOptionValue(nord.vpnSettings["technology"], options)
+            onChanged: function(v) { nord.setSetting("technology", v) }
+          }
+
+          SearchableDropdown {
+            id: protocolPicker
+            width: parent.width
+            showLabel: true
+            label: "Protocol"
+            placeholderText: "Select protocol..."
+            fontFamily: root.fontFamily
+            options: [
+              { value: "UDP", label: "UDP (faster)" },
+              { value: "TCP", label: "TCP (more reliable)" }
+            ]
+            value: root.selectedProtocol !== ""
+              ? root.selectedProtocol
+              : Model.selectedOptionValue(nord.vpnSettings["protocol"], options)
+            onChanged: function(v) {
+              root.selectedProtocol = v
+              root.persistSetting("protocol", v)
+              nord.setSetting("protocol", v)
+            }
+          }
+
+          PanelSeparator { foreground: root.foreground }
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            PanelSectionHeader { text: "Auto-connect"; foreground: root.foreground; fontFamily: root.fontFamily; fontSize: HubStyle.fsBody }
+            Row {
+              width: parent.width
+              spacing: Style.space(8)
+              Text {
+                width: parent.width - autoConnectSwitch.width - Style.space(8)
+                text: "Auto-connect: " + (nord.vpnSettings["auto-connect"] || "Checking…")
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+                verticalAlignment: Text.AlignVCenter
+              }
+              ToggleSwitch {
+                id: autoConnectSwitch
+                checked: Model.settingEnabled(nord.vpnSettings["auto-connect"])
+                busy: nord.settingsBusy
+                interactive: !nord.unavailable
+                foreground: root.foreground
+                onToggled: nord.setSetting("autoconnect", checked ? "off" : "on")
+              }
+            }
+            SearchableDropdown {
+              id: autoConnectCountryPicker
+              width: parent.width
+              showLabel: false
+              placeholderText: "Auto-connect country (optional)..."
+              fontFamily: root.fontFamily
+              options: nord.countries
+              value: nord.autoConnectCountry
+              onChanged: function(v) {
+                nord.autoConnectCountry = v
+                root.persistSetting("autoConnectCountry", v)
+                if (Model.settingEnabled(nord.vpnSettings["auto-connect"]))
+                  nord.setSetting("autoconnect", "on")
+              }
+            }
+            Text {
+              width: parent.width
+              text: nord.autoConnectCountry === ""
+                ? "No country selected: NordVPN will automatically choose the fastest available server in any location when connecting."
+                : "Country selected: NordVPN will use this country for auto-connect."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          Item {
+            width: parent.width
+            implicitHeight: settingsFlow.implicitHeight
+
+            Flow {
+              id: settingsFlow
+              width: parent.width
+            spacing: Style.space(8)
+            Repeater {
+              model: [
+              { key: "notify", label: "Notify", command: "notify" },
+              { key: "tray", label: "Tray", command: "tray" },
+              { key: "meshnet", label: "Meshnet", command: "meshnet" },
+              { key: "dns", label: "DNS", command: "dns" },
+              { key: "lan-discovery", label: "LAN Discovery", command: "lan-discovery" },
+              { key: "routing", label: "Routing", command: "routing" },
+              { key: "virtual-location", label: "Virtual Location", command: "virtual-location" },
+              { key: "arp-ignore", label: "ARP Ignore", command: "arp-ignore" },
+              { key: "post-quantum-vpn", label: "Post-quantum VPN", command: "pq" }
+            ]
+            delegate: Column {
+              width: (settingsFlow.width - Style.space(8)) / 2
+              spacing: Style.space(8)
+              Row {
+                width: parent.width
+                spacing: Style.space(8)
+                Text {
+                  width: parent.width - settingSwitch.width - Style.space(8)
+                  text: modelData.label + ": " + (nord.vpnSettings[modelData.key] || "Checking…")
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  wrapMode: Text.WordWrap
+                  maximumLineCount: 2
+                  verticalAlignment: Text.AlignVCenter
+                }
+                ToggleSwitch {
+                  id: settingSwitch
+                  checked: Model.settingEnabled(nord.vpnSettings[modelData.key])
+                  busy: nord.settingsBusy
+                  interactive: !nord.unavailable
+                    && !(modelData.key === "routing"
+                         && Model.settingEnabled(nord.vpnSettings["meshnet"]))
+                  foreground: root.foreground
+                  onToggled: nord.setSetting(modelData.command, checked ? "off" : "on")
+                }
+              }
+            }
+            }
+            }
+
+            Rectangle {
+              anchors.top: parent.top
+              anchors.bottom: parent.bottom
+              anchors.horizontalCenter: parent.horizontalCenter
+              width: 1
+              color: root.dim
+              opacity: 0.55
+            }
+          }
+
+          PanelSeparator { foreground: root.foreground }
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            PanelSectionHeader { text: "Security"; foreground: root.foreground; fontFamily: root.fontFamily; fontSize: HubStyle.fsBody }
+            Flow {
+              width: parent.width
+              spacing: Style.space(8)
+              Repeater {
+                model: [
+                  { key: "firewall", label: "Firewall", command: "firewall" },
+                  { key: "kill-switch", label: "Kill Switch", command: "killswitch" },
+                  { key: "threat-protection-lite", label: "Threat Protection Lite", command: "threatprotectionlite" }
+                ]
+                delegate: Column {
+                  width: (parent.width - Style.space(8)) / 2
+                  spacing: Style.space(8)
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(8)
+                    Text {
+                      width: parent.width - securitySwitch.width - Style.space(8)
+                      text: modelData.label + ": " + (nord.vpnSettings[modelData.key] || "Checking…")
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      wrapMode: Text.WordWrap
+                    }
+                    ToggleSwitch {
+                      id: securitySwitch
+                      checked: Model.settingEnabled(nord.vpnSettings[modelData.key])
+                      busy: nord.settingsBusy
+                      interactive: !nord.unavailable
+                      foreground: root.foreground
+                      onToggled: nord.setSetting(modelData.command, checked ? "off" : "on")
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          Item {
+            width: 1
+            height: Style.space(18)
+          }
+          }
+        }
+        }
+      }
+    }
+  }
+}

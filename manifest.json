@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "design-nexus.privacy-route",
+  "name": "Privacy Route",
+  "version": "1.0.0",
+  "author": "Design Nexus",
+  "license": "MIT",
+  "description": "NordVPN and Tor behind one icon, with only one of them carrying system traffic at a time. Combines io.github.guiestrela.nordvpn and tripleu.tor.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "PrivacyRoute.qml" },
+  "barWidget": {
+    "displayName": "Privacy Route",
+    "description": "Switch between direct, NordVPN and Tor. Starting one route takes the other down first. Right click toggles the last route, middle click refreshes.",
+    "category": "Network",
+    "aliases": ["vpn", "nordvpn", "tor", "onion", "privacy", "kill switch", "proxy"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "lastRoute": "nord" },
+    "schema": [
+      {
+        "key": "lastRoute",
+        "type": "enum",
+        "label": "Route for right click",
+        "options": ["nord", "tor"],
+        "defaultValue": "nord",
+        "description": "Updated automatically to the last route used. Per-route settings live in the nested nord and tor objects of this widget's shell.json entry."
+      }
+    ]
+  }
+}
