@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import qs.Commons
+import qs.Commons as Commons
 
 // The Tor mark, taken from the Tor Browser "Stable" icon and rendered as a
 // single monochrome path.
@@ -21,7 +22,7 @@ Item {
   id: root
 
   property real iconSize: Style.font.icon
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
 
   // Whole pixels, for the same reason TorWordmark rounds its blocks. Style.space()
   // is theme-scaled, so the bar's Style.space(13) arrives as 15.99 rather than 16 --

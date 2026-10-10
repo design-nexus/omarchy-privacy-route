@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../.."
 import "Model.js" as Model
@@ -24,12 +25,12 @@ Panel {
   property int modeIndex: 0
   property bool cursorActive: false
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   // Straight from the theme singleton: the bar exposes foreground, barForeground
   // and urgent, but no accent, so there is nothing to prefer over Color here.
-  readonly property color accent: Color.accent
+  readonly property color accent: Commons.Color.accent
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // The onion only lights up once traffic is actually going through Tor.

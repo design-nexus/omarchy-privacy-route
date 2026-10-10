@@ -3,6 +3,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../.."
 import "Model.js" as Model
@@ -13,8 +14,8 @@ Panel {
   moduleName: "io.github.guiestrela.nordvpn"
   ipcTarget: "io.github.guiestrela.nordvpn"
   manageIpc: false
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: (bar && bar.fontFamily) ? bar.fontFamily : Style.font.family
   readonly property color iconColor: nord.unavailable ? urgent : (nord.active ? foreground : dim)

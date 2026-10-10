@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "pages/nord" as Nord
 import "pages/tor" as Tor
@@ -27,8 +28,8 @@ BarWidget {
   readonly property var activePanel: panels[currentKey] || null
   readonly property bool activePanelShown: !!activePanel && activePanel.open
 
-  readonly property color foreground: bar ? bar.barForeground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.barForeground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   readonly property var nord: nordPage.service
@@ -428,7 +429,7 @@ BarWidget {
           width: parent.width - Style.space(28)
           textFormat: Text.PlainText
           text: root.statusLine()
-          color: root.conflict ? root.urgent : Color.foreground
+          color: root.conflict ? root.urgent : Commons.Color.foreground
           opacity: 0.75
           elide: Text.ElideRight
           font.family: root.fontFamily
@@ -462,7 +463,7 @@ BarWidget {
               width: parent.width - actions.width - parent.spacing
               wrapMode: Text.WordWrap
               textFormat: Text.PlainText
-              color: Color.foreground
+              color: Commons.Color.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               text: banner.kind === "conflict" ? "Both routes are up; traffic goes through NordVPN and Tor at once."
